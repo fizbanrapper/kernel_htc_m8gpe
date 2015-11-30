@@ -5178,22 +5178,6 @@ define_netdev_printk_level(netdev_warn, KERN_WARNING);
 define_netdev_printk_level(netdev_notice, KERN_NOTICE);
 define_netdev_printk_level(netdev_info, KERN_INFO);
 
-void __dev_put(struct net_device *dev, const char * func, int lineno)
-{
-   this_cpu_dec(*dev->pcpu_refcnt);
-   if (!strcmp(dev->name, "p2p0"))
-      netdev_info(dev, "dev_put %d %s:%d\n", netdev_refcnt_read(dev), func, lineno);
-}
-EXPORT_SYMBOL(__dev_put);
-
-void __dev_hold(struct net_device *dev, const char* func, int lineno)
-{
-   this_cpu_inc(*dev->pcpu_refcnt);
-   if (!strcmp(dev->name, "p2p0"))
-      netdev_info(dev, "dev_hold %d %s:%d\n", netdev_refcnt_read(dev), func, lineno);
-}
-EXPORT_SYMBOL(__dev_hold);
-
 static void __net_exit netdev_exit(struct net *net)
 {
 	kfree(net->dev_name_head);

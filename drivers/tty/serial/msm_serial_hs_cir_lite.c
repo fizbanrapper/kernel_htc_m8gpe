@@ -305,11 +305,13 @@ static int msm_hsl_irda_enable_set(void *data, u64 val)
 	if (val) {
 		E("%s(): irda turn on IRDA\n", __func__);
 		spin_lock_irqsave(&port->lock, flags);
-		if (msm_cir_port->cir_sir_switch)
-			gpio_direction_output(msm_cir_port->cir_sir_switch, 1);
 		if (msm_cir_port->cir_learn_en)
 			gpio_direction_output(msm_cir_port->cir_learn_en, 1);
 		gpio_direction_output(msm_cir_port->rst_pin, 0);
+		msleep(10);
+
+		if (msm_cir_port->cir_sir_switch)
+			gpio_direction_output(msm_cir_port->cir_sir_switch, 1);
 		ret = 3;
 		ret |= (int)val;
 		msm_hsl_write(port, ret, UARTDM_IRDA_ADDR);
@@ -512,7 +514,6 @@ static void handle_rx(struct uart_port *port, unsigned int misr)
 static void handle_tx(struct uart_port *port)
 {
 	struct circ_buf *xmit = &port->state->xmit;
-	struct msm_hsl_port *msm_cir_port = htc_cir_port;
 	int sent_tx;
 	int tx_count;
 	int x;
@@ -526,10 +527,6 @@ static void handle_tx(struct uart_port *port)
 		tx_count = UART_XMIT_SIZE - xmit->tail;
 	if (tx_count >= port->fifosize)
 		tx_count = port->fifosize;
-
-	if (msm_cir_port->cir_learn_en && cir_enable_flg == PATH_IRDA) {
-		gpio_direction_output(msm_cir_port->cir_learn_en, 0);
-	}
 
 	
 	if (port->x_char) {
@@ -590,10 +587,6 @@ static void handle_tx(struct uart_port *port)
 
 	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS)
 		uart_write_wakeup(port);
-
-	if (msm_cir_port->cir_learn_en && cir_enable_flg == PATH_IRDA) {
-		gpio_direction_output(msm_cir_port->cir_learn_en, 1);
-	}
 }
 
 static void handle_delta_cts(struct uart_port *port)
@@ -1536,11 +1529,13 @@ static ssize_t enable_cir_store(struct device *dev,
 	if (cir_en > 1) {
 		D("%s(): Set IRDA mode\n", __func__);
 		spin_lock_irqsave(&port->lock, flags);
-		if (msm_cir_port->cir_sir_switch)
-			gpio_direction_output(msm_cir_port->cir_sir_switch, 1);
 		if (msm_cir_port->cir_learn_en)
 			gpio_direction_output(msm_cir_port->cir_learn_en, 1);
 		gpio_direction_output(msm_cir_port->rst_pin, 0);
+		msleep(10);
+
+		if (msm_cir_port->cir_sir_switch)
+			gpio_direction_output(msm_cir_port->cir_sir_switch, 1);
 		ret = 3;
 		ret |= (int)cir_en;
 		msm_hsl_write(port, ret, UARTDM_IRDA_ADDR);
@@ -1664,7 +1659,7 @@ static int __devinit msm_serial_hsl_probe_cir(struct platform_device *pdev)
 	struct cir_platform_data *pdata;
 	int ret;
 	u32 line;
-
+	printk("[CIR]%s\n",__func__);
 	if (pdev->id == -1)
 		pdev->id = atomic_inc_return(&msm_serial_hsl_next_id) - 1;
 

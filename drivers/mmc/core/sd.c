@@ -342,6 +342,8 @@ int mmc_sd_switch_hs(struct mmc_card *card)
 	int err;
 	u8 *status;
 
+	card->sw_caps.uhs_max_dtr = 0;
+
 	if (card->scr.sda_vsn < SCR_SPEC_VER_1)
 		return 0;
 
@@ -982,11 +984,12 @@ static void mmc_sd_remove(struct mmc_host *host)
 	BUG_ON(!host->card);
 	printk(KERN_INFO "%s: %s, claimed : %d, claim_cnt : %d\n", mmc_hostname(host),
 		__func__, host->claimed, host->claim_cnt);
+
+	mmc_exit_clk_scaling(host);
 	mmc_remove_card(host->card);
 
 	mmc_claim_host(host);
 	host->card = NULL;
-	mmc_exit_clk_scaling(host);
 	mmc_release_host(host);
 	printk(KERN_INFO "%s: %s, claimed : %d, claim_cnt : %d\n", mmc_hostname(host),
 		__func__, host->claimed, host->claim_cnt);
@@ -1073,6 +1076,9 @@ static int mmc_sd_resume(struct mmc_host *host)
 	BUG_ON(!host);
 	BUG_ON(!host->card);
 
+	host->crc_count = 0;
+	
+	host->caps |= host->caps_uhs;
 	mmc_claim_host(host);
 #ifdef CONFIG_MMC_PARANOID_SD_INIT
 	retries = 5;

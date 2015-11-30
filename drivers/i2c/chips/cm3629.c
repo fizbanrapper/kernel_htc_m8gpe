@@ -2140,18 +2140,17 @@ static ssize_t ls_enable_store(struct device *dev,
 	ls_auto = -1;
 	sscanf(buf, "%d", &ls_auto);
 
-	if (ls_auto != 0 && ls_auto != 1 && ls_auto != 147 && ls_auto != 148) {
+	if (ls_auto != 0 && ls_auto != 1 && ls_auto != 147 && ls_auto != 148 && ls_auto != 149) {
 		return -EINVAL;
 	}
 	if (ls_auto) {
-		lpi->ls_calibrate = (ls_auto == 147) ? 1 : 0;
-		lpi->ws_calibrate = (ls_auto == 148) ? 1 : 0;
 		ret = lightsensor_enable(lpi);
 	} else {
-		lpi->ls_calibrate = 0;
-		lpi->ws_calibrate = 0;
 		ret = lightsensor_disable(lpi);
 	}
+	lpi->ls_calibrate = (ls_auto == 147) ? 1 : 0;
+	lpi->ws_calibrate = (ls_auto == 148) ? 1 : 0;
+
 
 	D("[LS][cm3629] %s: lpi->als_enable = %d, lpi->ls_calibrate = %d, lpi->ws_calibrate = %d, ls_auto=%d\n",
 		__func__, lpi->als_enable, lpi->ls_calibrate, lpi->ws_calibrate, ls_auto);

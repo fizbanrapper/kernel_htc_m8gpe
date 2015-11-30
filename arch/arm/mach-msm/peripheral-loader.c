@@ -32,9 +32,6 @@
 #include <linux/interrupt.h>
 #include <linux/of_gpio.h>
 
-#include <linux/vmalloc.h>
-#include <linux/memblock.h>
-
 #include <asm/uaccess.h>
 #include <asm/setup.h>
 #include <asm-generic/io-64-nonatomic-lo-hi.h>
@@ -439,38 +436,6 @@ static int pil_init_mmap(struct pil_desc *desc, const struct pil_mdt *mdt)
 	pil_info(desc, "loading from %pa to %pa\n", &priv->region_start,
 							&priv->region_end);
 
-	if(NULL == desc->vaddr)
-	{
-		struct page **pages;
-		phys_addr_t page_start;
-		unsigned int page_count;
-		pgprot_t prot;
-
-		ret = memblock_reserve(priv->region_start, (priv->region_end - priv->region_start));
-		if (ret) {
-			pr_err("Failed to reserve memory from %08lx-%08lx\n",
-				(long)priv->region_start, (long)(priv->region_end - 1));
-			return ret;
-		}
-
-		page_start = priv->region_start - offset_in_page(priv->region_start);
-		page_count = DIV_ROUND_UP((priv->region_end - priv->region_start) + offset_in_page(priv->region_start), PAGE_SIZE);
-		prot = pgprot_noncached(PAGE_KERNEL);
-		pages = kmalloc(sizeof(struct page *) * page_count, GFP_KERNEL);
-		if (!pages) {
-			pr_err("%s: Failed to allocate array for %u pages\n", __func__,
-			page_count);
-			return -ENOMEM;
-		}
-		for (i = 0; i < page_count; i++) {
-			phys_addr_t addr = page_start + i * PAGE_SIZE;
-			pages[i] = pfn_to_page(addr >> PAGE_SHIFT);
-		}
-		desc->vaddr = (unsigned char *)vmap(pages, page_count, VM_MAP, prot);
-		desc->image_length = (unsigned int)priv->region_end - priv->region_start;
-		kfree(pages);
-	}
-
 	for (i = 0; i < mdt->hdr.e_phnum; i++) {
 		phdr = &mdt->phdr[i];
 		if (!segment_is_loadable(phdr))
@@ -501,7 +466,7 @@ static void pil_release_mmap(struct pil_desc *desc)
 	}
 }
 
-#define IOMAP_SIZE SZ_4M
+#define IOMAP_SIZE SZ_1M
 
 static int pil_load_seg(struct pil_desc *desc, struct pil_seg *seg)
 {
@@ -764,8 +729,6 @@ int pil_desc_init(struct pil_desc *desc)
 		}
 		disable_irq(desc->proxy_unvote_irq);
 	}
-
-	desc->vaddr = NULL;
 
 	snprintf(priv->wname, sizeof(priv->wname), "pil-%s", desc->name);
 	wake_lock_init(&priv->wlock, WAKE_LOCK_SUSPEND, priv->wname);

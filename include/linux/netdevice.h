@@ -1764,14 +1764,6 @@ extern int		netdev_budget;
 
 extern void netdev_run_todo(void);
 
-
-#if 1
-extern void __dev_put(struct net_device *dev, const char *f, int lineno);
-extern void __dev_hold(struct net_device *dev, const char *f, int lineno);
-#define dev_put(_dev)  __dev_put(_dev, __func__, __LINE__)
-#define dev_hold(_dev)  __dev_hold(_dev, __func__, __LINE__)
-#else
-
 static inline void dev_put(struct net_device *dev)
 {
 	this_cpu_dec(*dev->pcpu_refcnt);
@@ -1781,8 +1773,6 @@ static inline void dev_hold(struct net_device *dev)
 {
 	this_cpu_inc(*dev->pcpu_refcnt);
 }
-
-#endif
 
 
 extern void linkwatch_fire_event(struct net_device *dev);

@@ -23,8 +23,6 @@ struct pil_desc {
 	struct module *owner;
 	unsigned long proxy_timeout;
 	unsigned long flags;
-	unsigned char *vaddr;
-	unsigned int image_length;
 #define PIL_SKIP_ENTRY_CHECK	BIT(0)
 	struct pil_priv *priv;
 	unsigned int proxy_unvote_irq;

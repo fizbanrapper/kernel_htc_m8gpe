@@ -74,7 +74,7 @@ static uint32_t correction_table[10] = {0};
 static uint32_t adctable[10] = {0};
 static int record_adc[6] = {0};
 static int avg_min_adc = 0;
-static int p_status = -1;
+static int p_status = 9;
 static int p_irq_status;
 static int prev_correction;
 static uint16_t ps_canc_set;
@@ -164,6 +164,7 @@ struct cm36686_info {
 	uint8_t dark_level;
 	int use__PS2v85;
 	uint32_t *correction_table;
+	int SR_3v_used;
 };
 
 static int fb_notifier_callback(struct notifier_block *self,
@@ -705,7 +706,7 @@ static void sensor_irq_do_work(struct work_struct *work)
 	enable_irq(lpi->irq);
 }
 
-static uint8_t mid_value(uint16_t value[], uint16_t size)
+static uint16_t mid_value(uint16_t value[], uint16_t size)
 {
 	int i = 0, j = 0;
 	uint16_t temp = 0;
@@ -1118,7 +1119,7 @@ static int psensor_disable(struct cm36686_info *lpi)
 			D("[PS][cm36686] %s: restore lpi->ps_thd_set = %d \n", __func__, lpi->ps_thd_set);
 		}
 	}
-	p_status = -1;
+	p_status = 9;
 	mutex_unlock(&ps_enable_mutex);
 	D("[PS][cm36686] %s --%d\n", __func__, lpi->ps_enable);
 	return ret;
@@ -1236,10 +1237,10 @@ static void psensor_set_kvalue(struct cm36686_info *lpi)
 		psensor_cali = 1;
 		lpi->inte_ps_canc = (uint16_t) (lpi->ps_kparam2 & 0xFFFF);
 		lpi->mfg_thd = (uint16_t) ((lpi->ps_kparam2 >> 16) & 0xFFFF);
-#ifdef CONFIG_PSENSOR_KTHRESHOLD
 
-		lpi->ps_thd_set = lpi->mfg_thd;
-#endif
+		if (lpi->mfg_thd)
+			lpi->ps_thd_set = lpi->mfg_thd;
+
 		D("[PS][cm36686] %s: PS calibrated inte_ps_canc = 0x%02X, "
 				"mfg_thd = 0x%02X, ((ps_kparam2 >> 16) & 0xFF) = 0x%X\n", __func__,
 				lpi->inte_ps_canc, mfg_thd, ((lpi->ps_kparam2 >> 16) & 0xFF));
@@ -1470,6 +1471,12 @@ static ssize_t ps_kadc_store(struct device *dev,
 	D("[PS][cm36686]%s: store value = 0x%X, 0x%X\n", __func__, param1, param2);
 	ps_conf1_val = lpi->ps_conf1_val;
 
+	ps_canc_set = lpi->inte_ps_canc = (param2 & 0xFFFF);
+	mfg_thd = lpi->mfg_thd = ((param2 >> 16) & 0xFFFF);
+	psensor_intelligent_cancel_cmd(lpi);
+	if (mfg_thd)
+		lpi->ps_thd_set = mfg_thd;
+
 	if (lpi->ps_enable) {
 		ps_conf[0] = lpi->ps_conf1_val;
 		ps_conf[1] = lpi->ps_conf2_val | CM36686_PS_INT_BOTH;
@@ -1479,9 +1486,6 @@ static ssize_t ps_kadc_store(struct device *dev,
 		enable_ps_interrupt(ps_conf);
 	}
 
-	ps_canc_set = lpi->inte_ps_canc = (param2 & 0xFFFF);
-	mfg_thd = lpi->mfg_thd = ((param2 >> 16) & 0xFFFF);
-	psensor_intelligent_cancel_cmd(lpi);
 
 	D("[PS]%s: inte_ps_canc = 0x%02X, mfg_thd = 0x%02X, lpi->ps_conf1_val  = 0x%02X\n",
 			__func__, lpi->inte_ps_canc, lpi->mfg_thd, lpi->ps_conf1_val);
@@ -1764,16 +1768,17 @@ static ssize_t ls_enable_store(struct device *dev,
 	ls_auto = -1;
 	sscanf(buf, "%d", &ls_auto);
 
-	if (ls_auto != 0 && ls_auto != 1 && ls_auto != 147 && ls_auto != 148) {
+	if (ls_auto != 0 && ls_auto != 1 && ls_auto != 147 && ls_auto != 148 && ls_auto != 149) {
 		return -EINVAL;
 	}
 	if (ls_auto) {
-		lpi->ls_calibrate = (ls_auto == 147) ? 1 : 0;
+		lpi->lightsensor_opened = 1;
 		ret = lightsensor_enable(lpi);
 	} else {
-		lpi->ls_calibrate = 0;
+		lpi->lightsensor_opened = 0;
 		ret = lightsensor_disable(lpi);
 	}
+	lpi->ls_calibrate = (ls_auto == 147) ? 1 : 0;
 
 	D("[LS][cm36686] %s: lpi->als_enable = %d, lpi->ls_calibrate = %d, ls_auto=%d\n",
 			__func__, lpi->als_enable, lpi->ls_calibrate, ls_auto);
@@ -1802,16 +1807,15 @@ static ssize_t ls_kadc_store(struct device *dev, struct device_attribute *attr, 
 	int kadc_temp = 0;
 
 	sscanf(buf, "%d", &kadc_temp);
+	printk(KERN_INFO "[LS]%s: kadc_temp=0x%x \n", __func__, kadc_temp);
 	if (kadc_temp <= 0 || lpi->golden_adc <= 0) {
 		printk(KERN_ERR "[LS][cm36686 error] %s: kadc_temp=0x%x, als_gadc=0x%x\n",
 				__func__, kadc_temp, lpi->golden_adc);
 		return -EINVAL;
 	}
 	mutex_lock(&als_get_adc_mutex);
-	if (lpi->ls_calibrate) {
-		lpi->als_kadc = kadc_temp;
-		lpi->als_gadc = lpi->golden_adc;
-	}
+	lpi->als_kadc = kadc_temp;
+	lpi->als_gadc = lpi->golden_adc;
 	printk(KERN_INFO "[LS]%s: als_kadc=0x%x, als_gadc=0x%x\n", __func__, lpi->als_kadc, lpi->als_gadc);
 	if (lightsensor_update_table(lpi) < 0)
 		printk(KERN_ERR "[LS][cm36686 error] %s: update ls table fail\n", __func__);
@@ -1979,7 +1983,7 @@ static DEVICE_ATTR(ps_fixed_thd_add, 0664, ps_fixed_thd_add_show, ps_fixed_thd_a
 static ssize_t p_status_show(struct device *dev,
                struct device_attribute *attr, char *buf)
 {
-       return sprintf(buf,"p_status: %d\n",p_status);
+       return sprintf(buf,"%d\n",p_status);
 }
 static DEVICE_ATTR(p_status, 0444, p_status_show, NULL);
 static ssize_t phone_status_show(struct device *dev,
@@ -2288,7 +2292,11 @@ static int cm36686_ldo_init(int init)
 		return -1;
 	}
 	if (!init) {
-		regulator_set_voltage(lpi->sr_2v85, 0, 2850000);
+		
+		if(lpi->SR_3v_used)
+			regulator_set_voltage(lpi->sr_2v85, 0, 3000000);
+		else
+			regulator_set_voltage(lpi->sr_2v85, 0, 2850000);
 		return 0;
 	}
 	if (lp_info->use__PS2v85) {
@@ -2308,7 +2316,11 @@ static int cm36686_ldo_init(int init)
 	}
 
 	D("[PS][cm36686] %s: lpi->sr_2v85 = 0x%p\n", __func__, lpi->sr_2v85);
-	rc = regulator_set_voltage(lpi->sr_2v85, 2850000, 2850000);
+	
+	if(lpi->SR_3v_used)
+		rc = regulator_set_voltage(lpi->sr_2v85, 3000000, 3000000);
+	else
+		rc = regulator_set_voltage(lpi->sr_2v85, 2850000, 2850000);
 	if (rc) {
 		pr_err("[PS][cm36686] %s: unable to set voltage for sr 2v85\n", __func__);
 		return rc;
@@ -2360,6 +2372,11 @@ static int cm36686_parse_dt(struct device *dev, struct cm36686_platform_data *pd
 	prop = of_find_property(dt, "cm36686,use__PS2v85", NULL);
 	if (prop) {
 		of_property_read_u32(dt, "cm36686,use__PS2v85", &pdata->use__PS2v85);
+	}
+
+	prop = of_find_property(dt, "cm36686,SR_3v_used", NULL);
+	if (prop) {
+		of_property_read_u32(dt, "cm36686,SR_3v_used", &pdata->SR_3v_used);
 	}
 
 	prop = of_find_property(dt, "cm36686,levels", NULL);
@@ -2572,6 +2589,7 @@ static int __devinit cm36686_probe(struct i2c_client *client,
 	lpi->emmc_ps_kadc1 = pdata->emmc_ps_kadc1;
 	lpi->emmc_ps_kadc2 = pdata->emmc_ps_kadc2;
 	lpi->use__PS2v85 = pdata->use__PS2v85;
+	lpi->SR_3v_used = pdata->SR_3v_used;
 	lp_info = lpi;
 
 	ret = cm36686_read_chip_id(lpi);

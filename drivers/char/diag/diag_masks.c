@@ -571,9 +571,9 @@ void diag_send_msg_mask_update(struct diag_smd_info *smd_info,
 		if (smd_info->ch) {
 			while (retry_count < 3) {
 				mutex_lock(&smd_info->smd_ch_mutex);
- 				size = smd_write(smd_info->ch, buf, header_size
- 					+ 4*(driver->msg_mask->msg_mask_size));
- 				mutex_unlock(&smd_info->smd_ch_mutex);
+				size = smd_write(smd_info->ch, buf, header_size
+					+ 4*(driver->msg_mask->msg_mask_size));
+				mutex_unlock(&smd_info->smd_ch_mutex);
 				if (size == -ENOMEM) {
 					retry_count++;
 					usleep_range(10000, 10100);
@@ -681,12 +681,12 @@ int diag_process_apps_masks(unsigned char *buf, int len)
 				*(int *)(driver->apps_rsp_buf+12+i) = *(buf+i);
 
 			for (i = 0; i < NUM_SMD_CONTROL_CHANNELS; i++) {
-				if ((i == MODEM_DATA || i == WCNSS_DATA) && (diag_rb_enable & DQ_FILTER_MASK)){
-					printk("diag(%d): Filter Modem and WCNSS mask\n", __LINE__);
+				if (i == MODEM_DATA && (diag_rb_enable & DQ_FILTER_MASK)){
+					printk("diag(%d): Filter Modem mask\n", __LINE__);
 					continue;
 				}
-				if ((i == MODEM_DATA || i == LPASS_DATA) && (diag_rb_enable & WCNSS_FILTER_MASK)) {
-					printk("diag(%d): Filter Modem and LPASS mask\n", __LINE__);
+				if (i == MODEM_DATA && (diag_rb_enable & WCNSS_FILTER_MASK)) {
+					printk("diag(%d): Filter Modem mask\n", __LINE__);
 					continue;
 				}
 				if (driver->smd_cntl[i].ch)
@@ -731,12 +731,12 @@ int diag_process_apps_masks(unsigned char *buf, int len)
 			*(int *)(driver->apps_rsp_buf + 4) = 0x0;
 			*(int *)(driver->apps_rsp_buf + 8) = 0x0; 
 			for (i = 0; i < NUM_SMD_CONTROL_CHANNELS; i++) {
-				if ((i == MODEM_DATA || i == WCNSS_DATA) && (diag_rb_enable & DQ_FILTER_MASK)){
-					printk("diag(%d): Filter Modem and WCNSS mask\n", __LINE__);
+				if (i == MODEM_DATA && (diag_rb_enable & DQ_FILTER_MASK)){
+					printk("diag(%d): Filter Modem mask\n", __LINE__);
 					continue;
 				}
-				if ((i == MODEM_DATA || i == LPASS_DATA) && (diag_rb_enable & WCNSS_FILTER_MASK)) {
-					printk("diag(%d): Filter Modem and LPASS mask\n", __LINE__);
+				if (i == MODEM_DATA && (diag_rb_enable & WCNSS_FILTER_MASK)) {
+					printk("diag(%d): Filter Modem mask\n", __LINE__);
 					continue;
 				}
 				if (driver->smd_cntl[i].ch)
@@ -809,12 +809,12 @@ int diag_process_apps_masks(unsigned char *buf, int len)
 				*(driver->apps_rsp_buf + i) = *(buf+i);
 			*(driver->apps_rsp_buf + 6) = 0x1;
 			for (i = 0; i < NUM_SMD_CONTROL_CHANNELS; i++) {
-				if ((i == MODEM_DATA || i == WCNSS_DATA) && (diag_rb_enable & DQ_FILTER_MASK)){
-					printk("diag(%d): Filter Modem and WCNSS mask\n", __LINE__);
+				if (i == MODEM_DATA && (diag_rb_enable & DQ_FILTER_MASK)){
+					printk("diag(%d): Filter Modem mask\n", __LINE__);
 					continue;
 				}
-				if ((i == MODEM_DATA || i == LPASS_DATA) && (diag_rb_enable & WCNSS_FILTER_MASK)) {
-					printk("diag(%d): Filter Modem and LPASS mask\n", __LINE__);
+				if (i == MODEM_DATA && (diag_rb_enable & WCNSS_FILTER_MASK)) {
+					printk("diag(%d): Filter Modem mask\n", __LINE__);
 					continue;
 				}
 				if (driver->smd_cntl[i].ch)
@@ -841,12 +841,12 @@ int diag_process_apps_masks(unsigned char *buf, int len)
 			*(int *)(driver->apps_rsp_buf + 4) = rt_mask;
 			
 			for (i = 0; i < NUM_SMD_CONTROL_CHANNELS; i++) {
-				if ((i == MODEM_DATA || i == WCNSS_DATA) && (diag_rb_enable & DQ_FILTER_MASK)) {
-					printk("diag(%d): Filter Modem and WCNSS mask\n", __LINE__);
+				if (i == MODEM_DATA && (diag_rb_enable & DQ_FILTER_MASK)) {
+					printk("diag(%d): Filter Modem mask\n", __LINE__);
 					continue;
 				}
-				if ((i == MODEM_DATA || i == LPASS_DATA) && (diag_rb_enable & WCNSS_FILTER_MASK)) {
-					printk("diag(%d): Filter Modem and LPASS mask\n", __LINE__);
+				if (i == MODEM_DATA && (diag_rb_enable & WCNSS_FILTER_MASK)) {
+					printk("diag(%d): Filter Modem mask\n", __LINE__);
 					continue;
 				}
 				if (driver->smd_cntl[i].ch)
@@ -874,12 +874,12 @@ int diag_process_apps_masks(unsigned char *buf, int len)
 			memcpy(driver->apps_rsp_buf+6, driver->event_masks,
 				EVENT_LAST_ID/8+1);
 			for (i = 0; i < NUM_SMD_CONTROL_CHANNELS; i++) {
-				if ((i == MODEM_DATA || i == WCNSS_DATA) && (diag_rb_enable & DQ_FILTER_MASK)){
-					printk("diag(%d): Filter Modem and WCNSS mask\n", __LINE__);
+				if (i == MODEM_DATA && (diag_rb_enable & DQ_FILTER_MASK)){
+					printk("diag(%d): Filter Modem mask\n", __LINE__);
 					continue;
 				}
-				if ((i == MODEM_DATA || i == LPASS_DATA) && (diag_rb_enable & WCNSS_FILTER_MASK)) {
-					printk("diag(%d): Filter Modem and LPASS mask\n", __LINE__);
+				if (i == MODEM_DATA && (diag_rb_enable & WCNSS_FILTER_MASK)) {
+					printk("diag(%d): Filter Modem mask\n", __LINE__);
 					continue;
 				}
 				if (driver->smd_cntl[i].ch)
@@ -900,12 +900,12 @@ int diag_process_apps_masks(unsigned char *buf, int len)
 			driver->apps_rsp_buf[1] = 0x0;
 			driver->apps_rsp_buf[2] = 0x0;
 			for (i = 0; i < NUM_SMD_CONTROL_CHANNELS; i++) {
-				if ((i == MODEM_DATA || i == WCNSS_DATA) && (diag_rb_enable & DQ_FILTER_MASK)) {
-					printk("diag(%d): Filter Modem and WCNSS mask\n", __LINE__);
+				if (i == MODEM_DATA && (diag_rb_enable & DQ_FILTER_MASK)) {
+					printk("diag(%d): Filter Modem mask\n", __LINE__);
 					continue;
 				}
-				if ((i == MODEM_DATA || i == LPASS_DATA) && (diag_rb_enable & WCNSS_FILTER_MASK)) {
-					printk("diag(%d): Filter Modem and LPASS mask\n", __LINE__);
+				if (i == MODEM_DATA && (diag_rb_enable & WCNSS_FILTER_MASK)) {
+					printk("diag(%d): Filter Modem mask\n", __LINE__);
 					continue;
 				}
 				if (driver->smd_cntl[i].ch)

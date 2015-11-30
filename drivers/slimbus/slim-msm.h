@@ -16,8 +16,9 @@
 #include <linux/irq.h>
 #include <linux/kthread.h>
 #include <mach/msm_qmi_interface.h>
+#include <mach/subsystem_notif.h>
+#include <mach/msm_ipc_logging.h>
 
-/* Per spec.max 40 bytes per received message */
 #define SLIM_MSGQ_BUF_LEN	40
 
 #define MSM_TX_BUFS	2
@@ -36,16 +37,14 @@
 #define SLIM_USR_MC_CONNECT_SINK	0x2D
 #define SLIM_USR_MC_DISCONNECT_PORT	0x2E
 
+#define SLIM_USR_MC_REPEAT_CHANGE_VALUE	0x0
+#define MSM_SLIM_VE_MAX_MAP_ADDR	0xFFF
+#define SLIM_MAX_VE_SLC_BYTES		16
+
 #define MSM_SLIM_AUTOSUSPEND		MSEC_PER_SEC
 
-/*
- * Messages that can be received simultaneously:
- * Client reads, LPASS master responses, announcement messages
- * Receive upto 10 messages simultaneously.
- */
 #define MSM_SLIM_DESC_NUM		32
 
-/* MSM Slimbus peripheral settings */
 #define MSM_SLIM_PERF_SUMM_THRESHOLD	0x8000
 #define MSM_SLIM_NPORTS			24
 #define MSM_SLIM_NCHANS			32
@@ -80,9 +79,9 @@
 #define MSM_MAX_NSATS	2
 #define MSM_MAX_SATCH	32
 
-/* Slimbus QMI service */
 #define SLIMBUS_QMI_SVC_ID 0x0301
-#define SLIMBUS_QMI_INS_ID 1
+#define SLIMBUS_QMI_SVC_V1 1
+#define SLIMBUS_QMI_INS_ID 0
 
 #define PGD_THIS_EE(r, v) ((v) ? PGD_THIS_EE_V2(r) : PGD_THIS_EE_V1(r))
 #define PGD_PORT(r, p, v) ((v) ? PGD_PORT_V2(r, p) : PGD_PORT_V1(r, p))
@@ -91,13 +90,11 @@
 #define PGD_THIS_EE_V2(r) (dev->base + (r ## _V2) + (dev->ee * 0x1000))
 #define PGD_PORT_V2(r, p) (dev->base + (r ## _V2) + ((p) * 0x1000))
 #define CFG_PORT_V2(r) ((r ## _V2))
-/* Component registers */
 enum comp_reg_v2 {
 	COMP_CFG_V2		= 4,
 	COMP_TRUST_CFG_V2	= 0x3000,
 };
 
-/* Manager PGD registers */
 enum pgd_reg_v2 {
 	PGD_CFG_V2		= 0x800,
 	PGD_STAT_V2		= 0x804,
@@ -127,13 +124,11 @@ enum pgd_reg_v2 {
 #define PGD_THIS_EE_V1(r) (dev->base + (r ## _V1) + (dev->ee * 16))
 #define PGD_PORT_V1(r, p) (dev->base + (r ## _V1) + ((p) * 32))
 #define CFG_PORT_V1(r) ((r ## _V1))
-/* Component registers */
 enum comp_reg_v1 {
 	COMP_CFG_V1		= 0,
 	COMP_TRUST_CFG_V1	= 0x14,
 };
 
-/* Manager PGD registers */
 enum pgd_reg_v1 {
 	PGD_CFG_V1		= 0x1000,
 	PGD_STAT_V1		= 0x1004,
@@ -168,7 +163,7 @@ enum msm_slim_port_status {
 
 enum msm_ctrl_state {
 	MSM_CTRL_AWAKE,
-	MSM_CTRL_SLEEPING,
+	MSM_CTRL_IDLE,
 	MSM_CTRL_ASLEEP,
 	MSM_CTRL_DOWN,
 };
@@ -197,12 +192,20 @@ struct msm_slim_endp {
 struct msm_slim_qmi {
 	struct qmi_handle		*handle;
 	struct task_struct		*task;
+	struct task_struct		*slave_thread;
+	struct completion		slave_notify;
 	struct kthread_work		kwork;
 	struct kthread_worker		kworker;
 	struct completion		qmi_comp;
 	struct notifier_block		nb;
 	struct work_struct		ssr_down;
 	struct work_struct		ssr_up;
+};
+
+struct msm_slim_mdm {
+	struct notifier_block nb;
+	void *ssr;
+	enum msm_ctrl_state state;
 };
 
 struct msm_slim_pdata {
@@ -250,9 +253,13 @@ struct msm_slim_ctrl {
 	struct completion	ctrl_up;
 	int			nsats;
 	u32			ver;
-	struct work_struct	slave_notify;
 	struct msm_slim_qmi	qmi;
 	struct msm_slim_pdata	pdata;
+	struct msm_slim_mdm	mdm;
+	int			default_ipc_log_mask;
+	int			ipc_log_mask;
+	bool			sysfs_created;
+	void			*ipc_slimbus_log;
 };
 
 struct msm_sat_chan {
@@ -286,6 +293,49 @@ enum rsc_grp {
 };
 
 
+#define IPC_SLIMBUS_LOG_PAGES 5
+
+enum {
+	FATAL_LEV = 0U,
+	ERR_LEV = 1U,
+	WARN_LEV = 2U,
+	INFO_LEV = 3U,
+	DBG_LEV = 4U,
+};
+
+#define SLIM_DBG(dev, x...) do { \
+	pr_debug(x); \
+	if (dev->ipc_slimbus_log && dev->ipc_log_mask >= DBG_LEV) { \
+		ipc_log_string(dev->ipc_slimbus_log, x); \
+	} \
+} while (0)
+
+#define SLIM_INFO(dev, x...) do { \
+	pr_debug(x); \
+	if (dev->ipc_slimbus_log && dev->ipc_log_mask >= INFO_LEV) {\
+		ipc_log_string(dev->ipc_slimbus_log, x); \
+	} \
+} while (0)
+
+#define SLIM_WARN(dev, x...) do { \
+	pr_warn(x); \
+	if (dev->ipc_slimbus_log && dev->ipc_log_mask >= WARN_LEV) \
+		ipc_log_string(dev->ipc_slimbus_log, x); \
+} while (0)
+
+#define SLIM_ERR(dev, x...) do { \
+	pr_err(x); \
+	if (dev->ipc_slimbus_log && dev->ipc_log_mask >= ERR_LEV) { \
+		ipc_log_string(dev->ipc_slimbus_log, x); \
+		dev->default_ipc_log_mask = dev->ipc_log_mask; \
+		dev->ipc_log_mask = FATAL_LEV; \
+	} \
+} while (0)
+
+#define SLIM_RST_LOGLVL(dev) { \
+	dev->ipc_log_mask = dev->default_ipc_log_mask; \
+}
+
 int msm_slim_rx_enqueue(struct msm_slim_ctrl *dev, u32 *buf, u8 len);
 int msm_slim_rx_dequeue(struct msm_slim_ctrl *dev, u8 *buf);
 int msm_slim_get_ctrl(struct msm_slim_ctrl *dev);
@@ -317,4 +367,5 @@ void msm_slim_disconnect_endp(struct msm_slim_ctrl *dev,
 void msm_slim_qmi_exit(struct msm_slim_ctrl *dev);
 int msm_slim_qmi_init(struct msm_slim_ctrl *dev, bool apps_is_master);
 int msm_slim_qmi_power_request(struct msm_slim_ctrl *dev, bool active);
+int msm_slim_qmi_check_framer_request(struct msm_slim_ctrl *dev);
 #endif

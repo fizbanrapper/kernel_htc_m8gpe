@@ -301,6 +301,14 @@ static int32_t s5k5e_platform_probe(struct platform_device *pdev)
 	int32_t rc = 0;
 	const struct of_device_id *match;
 	match = of_match_device(s5k5e_dt_match, &pdev->dev);
+
+	
+	if (match == NULL) {
+		pr_err("%s: match is NULL\n", __func__);
+		return -ENODEV;
+	}
+	
+
 	rc = msm_sensor_platform_probe(pdev, match->data);
 	return rc;
 }

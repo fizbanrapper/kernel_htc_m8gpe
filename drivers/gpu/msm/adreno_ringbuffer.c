@@ -1082,6 +1082,21 @@ int adreno_ringbuffer_submitcmd(struct adreno_device *adreno_dev,
 	
 	adreno_profile_process_results(device);
 
+	if (test_bit(ADRENO_CONTEXT_SKIP_CMD, &drawctxt->priv) &&
+		(!test_bit(CMDBATCH_FLAG_SKIP, &cmdbatch->priv))) {
+
+		set_bit(KGSL_FT_SKIPCMD, &cmdbatch->fault_recovery);
+		cmdbatch->fault_policy = drawctxt->fault_policy;
+		set_bit(CMDBATCH_FLAG_FORCE_PREAMBLE, &cmdbatch->priv);
+
+		
+		adreno_fault_skipcmd_detached(device, drawctxt, cmdbatch);
+
+		
+		clear_bit(ADRENO_CONTEXT_SKIP_CMD, &drawctxt->priv);
+		drawctxt->fault_policy = 0;
+	}
+
 
 	if ((drawctxt->base.flags & KGSL_CONTEXT_PREAMBLE) &&
 		!test_bit(CMDBATCH_FLAG_FORCE_PREAMBLE, &cmdbatch->priv) &&

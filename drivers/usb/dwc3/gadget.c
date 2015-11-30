@@ -217,6 +217,15 @@ void dwc3_gadget_giveback(struct dwc3_ep *dep, struct dwc3_request *req,
 		if (((dep->busy_slot & DWC3_TRB_MASK) == DWC3_TRB_NUM - 1) &&
 				usb_endpoint_xfer_isoc(dep->endpoint.desc))
 			dep->busy_slot++;
+
+		if (req->request.zero && req->ztrb) {
+			dep->busy_slot++;
+			req->ztrb = NULL;
+			if (((dep->busy_slot & DWC3_TRB_MASK) ==
+				DWC3_TRB_NUM - 1) &&
+				usb_endpoint_xfer_isoc(dep->endpoint.desc))
+				dep->busy_slot++;
+		}
 	}
 	list_del(&req->list);
 	req->trb = NULL;
@@ -554,9 +563,19 @@ static void dwc3_stop_active_transfer(struct dwc3 *dwc, u32 epnum);
 static void dwc3_remove_requests(struct dwc3 *dwc, struct dwc3_ep *dep)
 {
 	struct dwc3_request		*req;
+#if defined(CONFIG_HTC_DEBUG_RTB)
+		unsigned long long timestamp, timestamp_ms;
+#endif
 
 	if (!list_empty(&dep->req_queued)) {
 		dwc3_stop_active_transfer(dwc, dep->number);
+#if defined(CONFIG_HTC_DEBUG_RTB)
+						timestamp = sched_clock();
+						timestamp_ms = timestamp;
+						do_div(timestamp_ms, NSEC_PER_MSEC);
+						uncached_logk(LOGK_LOGBUF,
+							(void *)((unsigned long)timestamp_ms));
+#endif
 
 		
 		while (!list_empty(&dep->req_queued)) {
@@ -565,7 +584,13 @@ static void dwc3_remove_requests(struct dwc3 *dwc, struct dwc3_ep *dep)
 			dwc3_gadget_giveback(dep, req, -ESHUTDOWN);
 		}
 	}
-
+#if defined(CONFIG_HTC_DEBUG_RTB)
+				timestamp = sched_clock();
+				timestamp_ms = timestamp;
+				do_div(timestamp_ms, NSEC_PER_MSEC);
+				uncached_logk(LOGK_LOGBUF,
+					(void *)((unsigned long)timestamp_ms));
+#endif
 	while (!list_empty(&dep->request_list)) {
 		req = next_request(&dep->request_list);
 
@@ -801,6 +826,7 @@ static void dwc3_prepare_one_trb(struct dwc3_ep *dep,
 		req->trb_dma = dwc3_trb_dma_offset(dep, trb);
 	}
 
+update_trb:
 	trb->size = DWC3_TRB_SIZE_LENGTH(length);
 	trb->bpl = lower_32_bits(dma);
 	trb->bph = upper_32_bits(dma);
@@ -831,7 +857,6 @@ static void dwc3_prepare_one_trb(struct dwc3_ep *dep,
 	} else {
 		if (chain)
 			trb->ctrl |= DWC3_TRB_CTRL_CHN;
-
         if (dep->endpoint.is_ncm)
             trb->ctrl |= DWC3_TRB_CTRL_CSP;
 	}
@@ -840,6 +865,22 @@ static void dwc3_prepare_one_trb(struct dwc3_ep *dep,
 		trb->ctrl |= DWC3_TRB_CTRL_SID_SOFN(req->request.stream_id);
 
 	trb->ctrl |= DWC3_TRB_CTRL_HWO;
+
+	if (req->request.zero && length &&
+			(length % usb_endpoint_maxp(dep->endpoint.desc) == 0)) {
+		trb = &dep->trb_pool[dep->free_slot & DWC3_TRB_MASK];
+		dep->free_slot++;
+
+		
+		if (((dep->free_slot & DWC3_TRB_MASK) == DWC3_TRB_NUM - 1) &&
+			usb_endpoint_xfer_isoc(dep->endpoint.desc))
+			dep->free_slot++;
+
+		req->ztrb = trb;
+		length = 0;
+
+		goto update_trb;
+	}
 
 	if (!usb_endpoint_xfer_isoc(dep->endpoint.desc)) {
 		if (last)
@@ -922,12 +963,25 @@ static void dwc3_prepare_trbs(struct dwc3_ep *dep, bool starting)
 			}
 			dbg_queue(dep->number, &req->request, 0);
 		} else {
+			struct dwc3_request	*req1;
+			int maxpkt_size = usb_endpoint_maxp(dep->endpoint.desc);
+
 			dma = req->request.dma;
 			length = req->request.length;
 			trbs_left--;
 
-			if (!trbs_left)
+			if (req->request.zero && length &&
+						(length % maxpkt_size == 0))
+				trbs_left--;
+
+			if (!trbs_left) {
 				last_one = 1;
+			} else if (dep->direction && (trbs_left <= 1)) {
+				req1 = next_request(&req->list);
+				if (req1->request.zero && req1->request.length
+				 && (req1->request.length % maxpkt_size == 0))
+					last_one = 1;
+			}
 
 			
 			if (list_is_last(&req->list, &dep->request_list))
@@ -1092,6 +1146,9 @@ static int __dwc3_gadget_ep_queue(struct dwc3_ep *dep, struct dwc3_request *req)
 			dep->direction);
 	if (ret)
 		return ret;
+
+	uncached_logk(LOGK_LOGBUF,
+		(void *)((unsigned long)dep->number));
 
 	list_add_tail(&req->list, &dep->request_list);
 
@@ -1503,6 +1560,9 @@ static int dwc3_gadget_pullup(struct usb_gadget *g, int is_on)
 	is_on = !!is_on;
 	printk(KERN_INFO "[USB] %s %d\n",__func__,is_on);
 
+	
+	g->ats_reset_irq_count	= 0;
+
 	if (is_on)
 		enable_irq(g_irq);
 	else
@@ -1548,6 +1608,9 @@ static int dwc3_gadget_vbus_session(struct usb_gadget *_gadget, int is_active)
 
 	
 	dwc->vbus_active = is_active;
+
+	
+	_gadget->ats_reset_irq_count	= 0;
 
 	if (dwc->gadget_driver && dwc->softconnect) {
 		if (dwc->vbus_active) {
@@ -1869,6 +1932,8 @@ static int dwc3_cleanup_done_reqs(struct dwc3 *dwc, struct dwc3_ep *dep,
 				s_pkt = 1;
 		}
 
+		if (req->ztrb)
+			trb = req->ztrb;
 		req->request.actual += req->request.length - count;
 		dwc3_gadget_giveback(dep, req, status);
 		if (s_pkt)
@@ -1966,6 +2031,7 @@ static void dwc3_endpoint_interrupt(struct dwc3 *dwc,
 			return;
 		}
 
+		dbg_event(dep->number, "XFRCOMP", 0);
 		dwc3_endpoint_transfer_complete(dwc, dep, event, 1);
 		break;
 	case DWC3_DEPEVT_XFERINPROGRESS:
@@ -1976,9 +2042,11 @@ static void dwc3_endpoint_interrupt(struct dwc3 *dwc,
             return;
 		}
 
+		dbg_event(dep->number, "XFRPROG", 0);
 		dwc3_endpoint_transfer_complete(dwc, dep, event, 0);
 		break;
 	case DWC3_DEPEVT_XFERNOTREADY:
+		dbg_event(dep->number, "XFRNRDY", 0);
 		if (usb_endpoint_xfer_isoc(dep->endpoint.desc)) {
 			dwc3_gadget_start_isoc(dwc, dep, event);
 		} else {
@@ -2407,8 +2475,17 @@ static void dwc3_gadget_interrupt(struct dwc3 *dwc,
 		printk(KERN_INFO "[USB] gadget irq disconnect\n");
 		break;
 	case DWC3_DEVICE_EVENT_RESET:
+		if (dwc->gadget.ats_reset_irq_count == 50) {
+			dwc->gadget.ats_reset_irq_count++;
+				if (dwc->gadget_driver->broadcast_abnormal_usb_reset) {
+						printk(KERN_INFO "[USB] gadget irq :abnormal the amount of reset irq!\n");
+						dwc->gadget_driver->broadcast_abnormal_usb_reset();
+				}
+		} else if (dwc->gadget.ats_reset_irq_count < 50)
+			dwc->gadget.ats_reset_irq_count++;
+
 		dwc3_gadget_reset_interrupt(dwc);
-		printk(KERN_INFO "[USB] gadget irq reset\n");
+		printk(KERN_INFO "[USB] gadget irq reset,count %d\n",dwc->gadget.ats_reset_irq_count);
 		break;
 	case DWC3_DEVICE_EVENT_CONNECT_DONE:
 		dwc3_gadget_conndone_interrupt(dwc);

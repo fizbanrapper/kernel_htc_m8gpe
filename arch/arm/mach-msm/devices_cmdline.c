@@ -154,6 +154,28 @@ int board_mfg_mode(void)
 
 EXPORT_SYMBOL(board_mfg_mode);
 
+static int ftm_mode = 0;
+static int __init board_ftm_mode_init(char *s)
+{
+	if (!strcmp(s, "0"))
+		ftm_mode = 0;
+	else if (!strcmp(s, "1"))
+		ftm_mode = 1;
+	else if (!strcmp(s, "2"))
+		ftm_mode = 2;
+	else
+		printk(KERN_INFO "%s: ftm_mode(%s) not define\n", __func__, s);
+
+	return 1;
+}
+__setup("androidboot.ftm=", board_ftm_mode_init);
+
+int board_ftm_mode(void)
+{
+	return ftm_mode;
+}
+EXPORT_SYMBOL(board_ftm_mode);
+
 int is_9kramdump_mode(void)
 {
 	return recovery_9k_ramdump;

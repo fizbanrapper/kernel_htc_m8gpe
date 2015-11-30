@@ -752,7 +752,7 @@ launch_event_store(struct kobject *kobj, struct kobj_attribute *attr,
 	if (strict_strtoul(buf, 10, &val))
 		return -EINVAL;
 
-	if (val > 2)
+	if (val > 1)
 		return -EINVAL;
 
 	launch_event_enabled = val;
